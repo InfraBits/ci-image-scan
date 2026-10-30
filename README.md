@@ -12,6 +12,5 @@ Uses `syft` to build a SBOM and then scans using `grype` or `trivy`.
     steps:
       - uses: infrabits/ci-image-scan@main
         with:
-          image: ghcr.io/${{ github.repository }}:${{ github.sha }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
 ```
