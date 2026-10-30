@@ -49,3 +49,12 @@ module.exports = function table(entries, severityIcon) {
     `|----------|---------|-----------|-------|-----------------|\n` +
     rows.join('\n');
 };
+
+// Note how many vulnerabilities were left out of the comment for having no fix available
+module.exports.unfixedNote = function unfixedNote(count) {
+  if (!count) {
+    return '';
+  }
+  return ` ${count} ${count === 1 ? 'vulnerability' : 'vulnerabilities'} with no fix available ` +
+    `${count === 1 ? 'is' : 'are'} not listed.`;
+};
