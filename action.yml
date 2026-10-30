@@ -1,0 +1,147 @@
+name: Image scan
+description: Scan container images (including buildpack images) for vulnerabilities
+
+inputs:
+  image:
+    description: Image to scan. Defaults to ghcr.io/<owner>/<repo>:<sha> (lowercased).
+    required: false
+    default: ""
+  scanner:
+    description: Scanner to use, trivy or grype.
+    required: false
+    default: "trivy"
+  upload_report:
+    description: Upload the scan report as a workflow artifact.
+    required: false
+    default: "false"
+  upload_sbom:
+    description: Upload the generated SBOMs as a workflow artifact.
+    required: false
+    default: "true"
+  upload_sarif:
+    description: Upload SARIF results to GitHub code scanning.
+    required: false
+    default: "true"
+  comment_on_pr:
+    description: Post a summary comment on pull requests.
+    required: false
+    default: "true"
+  github-token:
+    description: Token used to comment on pull requests.
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup
+      id: setup
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        SCANNER: ${{ inputs.scanner }}
+      run: |
+        if [ "${SCANNER}" != "trivy" ] && [ "${SCANNER}" != "grype" ];
+        then
+          echo "::error::No supported scanner specified: ${SCANNER}"
+          exit 1
+        fi
+
+        if [ -z "${IMAGE}" ];
+        then
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY}:${GITHUB_SHA}"
+        fi
+        # ghcr requires lowercase repository names
+        IMAGE="${IMAGE,,}"
+
+        sbom_dir="$(mktemp -d "${RUNNER_TEMP}/sbom.XXXXXX")"
+        report_dir="$(mktemp -d "${RUNNER_TEMP}/report.XXXXXX")"
+        {
+          echo "image=${IMAGE}"
+          echo "sbom_dir=${sbom_dir}"
+          echo "report_dir=${report_dir}"
+        } >> "${GITHUB_OUTPUT}"
+
+    - name: Install tools
+      shell: bash
+      env:
+        SCANNER: ${{ inputs.scanner }}
+      run: bash "${GITHUB_ACTION_PATH}/scripts/install.sh"
+
+    - name: Build SBOM
+      id: sbom
+      shell: bash
+      env:
+        IMAGE: ${{ steps.setup.outputs.image }}
+        SBOM_DIR: ${{ steps.setup.outputs.sbom_dir }}
+      run: bash "${GITHUB_ACTION_PATH}/scripts/sbom.sh"
+
+    - name: Upload SBOM
+      if: inputs.upload_sbom == 'true'
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      with:
+        name: ${{ inputs.scanner }}-sbom
+        path: ${{ steps.setup.outputs.sbom_dir }}
+
+    - name: Scan with ${{ inputs.scanner }}
+      id: scan
+      if: inputs.upload_report == 'true' || inputs.upload_sarif == 'true' || (inputs.comment_on_pr == 'true' && github.event_name == 'pull_request')
+      shell: bash
+      env:
+        SCANNER: ${{ inputs.scanner }}
+        GENERATE_REPORT: ${{ inputs.upload_report == 'true' }}
+        GENERATE_SARIF: ${{ inputs.upload_sarif == 'true' }}
+        GENERATE_JSON: ${{ inputs.comment_on_pr == 'true' && github.event_name == 'pull_request' }}
+        # grype reads syft-json natively; trivy only accepts CycloneDX/SPDX
+        SBOM_PATH: ${{ inputs.scanner == 'grype' && steps.sbom.outputs.syft_path || steps.sbom.outputs.cdx_path }}
+        REPORT_DIR: ${{ steps.setup.outputs.report_dir }}
+      run: bash "${GITHUB_ACTION_PATH}/scripts/${SCANNER}/scan.sh"
+
+    - name: Upload report
+      if: inputs.upload_report == 'true'
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      with:
+        name: ${{ inputs.scanner }}-scan-results
+        path: ${{ steps.scan.outputs.report_path }}
+
+    - name: Upload SARIF report
+      if: inputs.upload_sarif == 'true'
+      uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+      continue-on-error: true
+      with:
+        sarif_file: ${{ steps.scan.outputs.sarif_path }}
+        category: ${{ inputs.scanner }}
+
+    - name: Comment on PR
+      if: inputs.comment_on_pr == 'true' && github.event_name == 'pull_request'
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        SCANNER: ${{ inputs.scanner }}
+        IMAGE: ${{ steps.setup.outputs.image }}
+        JSON_PATH: ${{ steps.scan.outputs.json_path }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const path = require('path');
+          const { ACTION_PATH, SCANNER, IMAGE, JSON_PATH } = process.env;
+          const build = require(path.join(ACTION_PATH, 'scripts', 'comment', `${SCANNER}.js`));
+          const post = require(path.join(ACTION_PATH, 'scripts', 'comment', 'post.js'));
+          const title = `${SCANNER[0].toUpperCase()}${SCANNER.slice(1)} Security Scan`;
+          await post({ github, context, core, key: SCANNER, title, image: IMAGE, summary: build(JSON_PATH, IMAGE) });
+
+    - name: Comment SBOM on PR
+      if: inputs.comment_on_pr == 'true' && github.event_name == 'pull_request'
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        IMAGE: ${{ steps.setup.outputs.image }}
+        SBOM_PATH: ${{ steps.sbom.outputs.syft_path }}
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const path = require('path');
+          const { ACTION_PATH, IMAGE, SBOM_PATH } = process.env;
+          const build = require(path.join(ACTION_PATH, 'scripts', 'comment', 'sbom.js'));
+          const post = require(path.join(ACTION_PATH, 'scripts', 'comment', 'post.js'));
+          await post({ github, context, core, key: 'sbom', title: 'Installed Software', image: IMAGE, summary: build(SBOM_PATH, IMAGE) });

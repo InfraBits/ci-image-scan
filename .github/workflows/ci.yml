@@ -1,0 +1,26 @@
+name: CI
+on: { pull_request: { }, push: { branches: [ 'main' ] } }
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        scanner: [trivy, grype]
+        case: [report, sbom, sarif]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./
+        with:
+          image: tools-harbor.wmcloud.org/tool-sample-complex-app/webservice:latest
+          scanner: ${{ matrix.scanner }}
+          upload_report: ${{ matrix.case == 'report' }}
+          upload_sbom: ${{ matrix.case == 'sbom' }}
+          upload_sarif: ${{ matrix.case == 'sarif' }}
+          comment_on_pr: false
