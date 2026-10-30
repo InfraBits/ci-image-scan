@@ -92,8 +92,7 @@ runs:
         GENERATE_REPORT: ${{ inputs.upload_report == 'true' }}
         GENERATE_SARIF: ${{ inputs.upload_sarif == 'true' }}
         GENERATE_JSON: ${{ inputs.comment_on_pr == 'true' && github.event_name == 'pull_request' }}
-        # grype reads syft-json natively; trivy only accepts CycloneDX/SPDX
-        SBOM_PATH: ${{ inputs.scanner == 'grype' && steps.sbom.outputs.syft_path || steps.sbom.outputs.cdx_path }}
+        SBOM_PATH: ${{ steps.sbom.outputs.syft_path }}
         REPORT_DIR: ${{ steps.setup.outputs.report_dir }}
       run: bash "${GITHUB_ACTION_PATH}/scripts/${SCANNER}/scan.sh"
 

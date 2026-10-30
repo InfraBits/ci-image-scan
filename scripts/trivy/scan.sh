@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# The HTML report and PR comment cover every vulnerability, regardless of severity or fix state
+# trivy only reads CycloneDX/SPDX, so convert the syft SBOM after dropping packages owned by
+# OS packages (see os-owned.jq) and adding the source package details it needs (see source.jq)
+scan_sbom="$(mktemp "${RUNNER_TEMP}/scan.XXXXXX.cdx.json")"
+jq -f "${GITHUB_ACTION_PATH}/scripts/os-owned.jq" "${SBOM_PATH}" \
+  | syft convert - -o cyclonedx-json \
+  | jq -f "${GITHUB_ACTION_PATH}/scripts/trivy/source.jq" > "${scan_sbom}"
+
+# The HTML report covers every vulnerability, regardless of severity or fix state.
+# The PR comment only lists fixable ones, filtered when it is built from the JSON.
 if [ "${GENERATE_REPORT}" = "true" ] || [ "${GENERATE_JSON}" = "true" ];
 then
   trivy sbom \
@@ -9,7 +17,7 @@ then
     --exit-code 0 \
     --format json \
     --output "${REPORT_DIR}/trivy.json" \
-    "${SBOM_PATH}"
+    "${scan_sbom}"
   echo "json_path=${REPORT_DIR}/trivy.json" >> "${GITHUB_OUTPUT}"
 
   if [ "${GENERATE_REPORT}" = "true" ];
@@ -31,6 +39,6 @@ then
     --exit-code 0 \
     --format sarif \
     --output "${REPORT_DIR}/trivy.sarif" \
-    "${SBOM_PATH}"
+    "${scan_sbom}"
   echo "sarif_path=${REPORT_DIR}/trivy.sarif" >> "${GITHUB_OUTPUT}"
 fi

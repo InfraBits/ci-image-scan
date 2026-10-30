@@ -1,6 +1,7 @@
 // Build the PR comment summary from a grype JSON report.
 const fs = require('fs');
 const table = require('./table');
+const { unfixedNote } = table;
 
 const severityIcon = { Critical: '🔴', High: '🟠', Medium: '🟡', Low: '🔵', Negligible: '⚪', Unknown: '⚪' };
 const severityOrder = Object.keys(severityIcon);
@@ -21,19 +22,25 @@ module.exports = function build(reportPath, image) {
 
   // Keep the highest severity when the same vulnerability is matched more than once
   const rank = s => (severityOrder.includes(s) ? severityOrder.indexOf(s) : severityOrder.length);
+  // Only fixable vulnerabilities are listed, so the comment stays actionable; the rest are counted
   const unique = new Map();
+  const unfixed = new Set();
   for (const m of (data.matches || [])) {
     const v = m.vulnerability;
     const a = m.artifact;
     const { id, url } = canonical(m);
     const key = `${id}/${a.name}/${a.version}`;
-    if (!unique.has(key) || rank(v.severity) < rank(unique.get(key).v.severity)) {
+    if (v.fix?.state !== 'fixed') {
+      unfixed.add(key);
+    } else if (!unique.has(key) || rank(v.severity) < rank(unique.get(key).v.severity)) {
       unique.set(key, { v, a, id, url });
     }
   }
   const vulns = [...unique.values()];
+  const hidden = [...unfixed].filter(key => !unique.has(key)).length;
+  const note = unfixedNote(hidden);
   if (!vulns.length) {
-    return '_No vulnerabilities found._';
+    return '_No fixable vulnerabilities found._' + note;
   }
 
   const byType = {};
@@ -59,7 +66,7 @@ module.exports = function build(reportPath, image) {
     .map(([s, n]) => `${severityIcon[s]} ${n} ${s.toLowerCase()}`);
   const packages = new Set(vulns.map(e => e.a.name)).size;
 
-  return `Found ${counts.join(', ')} ${vulns.length === 1 ? 'vulnerability' : 'vulnerabilities'} ` +
-    `across ${packages} ${packages === 1 ? 'package' : 'packages'} in \`${image}\`.\n\n` +
+  return `Found ${counts.join(', ')} fixable ${vulns.length === 1 ? 'vulnerability' : 'vulnerabilities'} ` +
+    `across ${packages} ${packages === 1 ? 'package' : 'packages'} in \`${image}\`.${note}\n\n` +
     sections.join('\n\n');
 };

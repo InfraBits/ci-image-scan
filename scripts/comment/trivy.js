@@ -1,6 +1,7 @@
 // Build the PR comment summary from a trivy JSON report.
 const fs = require('fs');
 const table = require('./table');
+const { unfixedNote } = table;
 
 const severityIcon = { CRITICAL: '🔴', HIGH: '🟠', MEDIUM: '🟡', LOW: '🔵', UNKNOWN: '⚪' };
 
@@ -14,9 +15,13 @@ function heading(result, sbomPath) {
 module.exports = function build(reportPath) {
   const data = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
 
+  // Only fixable vulnerabilities are listed, so the comment stays actionable; the rest are counted
   const sections = [];
+  let hidden = 0;
   for (const result of (data.Results || [])) {
-    const vulns = result.Vulnerabilities || [];
+    const all = result.Vulnerabilities || [];
+    const vulns = all.filter(v => v.FixedVersion);
+    hidden += all.length - vulns.length;
     if (vulns.length === 0) {
       continue;
     }
@@ -33,12 +38,14 @@ module.exports = function build(reportPath) {
     });
   }
 
+  const note = unfixedNote(hidden).trim();
   if (!sections.length) {
-    return '_No vulnerabilities found._';
+    return `_No fixable vulnerabilities found._${note ? ' ' + note : ''}`;
   }
+  const prefix = note ? `${note}\n\n` : '';
   // A single result needs no heading to tell it apart
   if (sections.length === 1) {
-    return sections[0].table;
+    return prefix + sections[0].table;
   }
-  return sections.map(s => `### ${s.heading}\n${s.table}`).join('\n\n');
+  return prefix + sections.map(s => `### ${s.heading}\n${s.table}`).join('\n\n');
 };

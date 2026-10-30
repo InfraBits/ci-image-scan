@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# The text report and PR comment cover every vulnerability, regardless of severity or fix state
+# Scan without packages owned by OS packages (see os-owned.jq)
+scan_sbom="$(mktemp "${RUNNER_TEMP}/scan.XXXXXX.syft.json")"
+jq -f "${GITHUB_ACTION_PATH}/scripts/os-owned.jq" "${SBOM_PATH}" > "${scan_sbom}"
+
+# The text report covers every vulnerability, regardless of severity or fix state.
+# The PR comment only lists fixable ones, filtered when it is built from the JSON.
 if [ "${GENERATE_REPORT}" = "true" ] || [ "${GENERATE_JSON}" = "true" ];
 then
   outputs=()
@@ -18,12 +23,12 @@ then
     echo "json_path=${REPORT_DIR}/grype.json" >> "${GITHUB_OUTPUT}"
   fi
 
-  grype "sbom:${SBOM_PATH}" "${outputs[@]}"
+  grype "sbom:${scan_sbom}" "${outputs[@]}"
 fi
 
 # SARIF only covers fixable vulnerabilities, to keep code scanning actionable
 if [ "${GENERATE_SARIF}" = "true" ];
 then
-  grype "sbom:${SBOM_PATH}" --only-fixed -o sarif="${REPORT_DIR}/grype.sarif"
+  grype "sbom:${scan_sbom}" --only-fixed -o sarif="${REPORT_DIR}/grype.sarif"
   echo "sarif_path=${REPORT_DIR}/grype.sarif" >> "${GITHUB_OUTPUT}"
 fi
