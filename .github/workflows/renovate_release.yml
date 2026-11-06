@@ -9,6 +9,6 @@ jobs:
       contents: write
     steps:
       - id: renovate-release
-        uses: infrabits/ci-create-renovate-release@6b57bd8d9bde13270a96f1157424d0f83b3ea6e1 # main
+        uses: infrabits/ci-create-renovate-release@9438f2b15384e449fa8337fdb9c4ba499c51ece6 # v1.4.2
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
