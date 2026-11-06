@@ -2,10 +2,22 @@
 set -euo pipefail
 
 # trivy only reads CycloneDX/SPDX, so convert the syft SBOM after dropping packages owned by
-# OS packages (see os-owned.jq) and adding the source package details it needs (see source.jq)
-scan_sbom="$(mktemp "${RUNNER_TEMP}/scan.XXXXXX.cdx.json")"
+# OS packages (see os-owned.jq), keeping a single type of OS package (see os-type.jq) and adding
+# the source package details it needs (see source.jq)
+filtered_sbom="$(mktemp "${RUNNER_TEMP}/scan.XXXXXX.syft.json")"
 jq -f "${GITHUB_ACTION_PATH}/scripts/os-owned.jq" "${SBOM_PATH}" \
-  | syft convert - -o cyclonedx-json \
+  | jq -f "${GITHUB_ACTION_PATH}/scripts/trivy/os-type.jq" > "${filtered_sbom}"
+
+os_counts='[.artifacts[] | select(.type | IN("deb", "rpm", "apk")) | .type] | group_by(.) | map("\(length) \(first)") | join(", ")'
+before="$(jq -r "${os_counts}" "${SBOM_PATH}")"
+after="$(jq -r "${os_counts}" "${filtered_sbom}")"
+if [ "${before}" != "${after}" ];
+then
+  echo "::warning::Image contains multiple types of OS packages (${before}), trivy can only scan one so only ${after} will be scanned"
+fi
+
+scan_sbom="$(mktemp "${RUNNER_TEMP}/scan.XXXXXX.cdx.json")"
+syft convert "${filtered_sbom}" -o cyclonedx-json \
   | jq -f "${GITHUB_ACTION_PATH}/scripts/trivy/source.jq" > "${scan_sbom}"
 
 # The HTML report covers every vulnerability, regardless of severity or fix state.
