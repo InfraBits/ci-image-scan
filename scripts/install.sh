@@ -2,11 +2,11 @@
 set -euo pipefail
 
 # renovate: datasource=github-releases depName=anchore/syft
-SYFT_VERSION="1.55.0"
+SYFT_VERSION="1.57.0"
 # renovate: datasource=github-releases depName=anchore/grype
-GRYPE_VERSION="0.121.0"
+GRYPE_VERSION="0.121.2"
 # renovate: datasource=github-releases depName=aquasecurity/trivy
-TRIVY_VERSION="0.76.1"
+TRIVY_VERSION="0.76.2"
 
 case "${RUNNER_ARCH}" in
   X64)   anchore_arch="amd64"; trivy_arch="64bit" ;;
