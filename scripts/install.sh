@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # renovate: datasource=github-releases depName=anchore/syft
-SYFT_VERSION="1.57.0"
+SYFT_VERSION="1.57.1"
 # renovate: datasource=github-releases depName=anchore/grype
 GRYPE_VERSION="0.121.3"
 # renovate: datasource=github-releases depName=aquasecurity/trivy
